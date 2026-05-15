@@ -933,7 +933,7 @@ async function fetchAll(token) {
       rest.forEach(r => pages.push(r.results || []));
     }
 
-    allScoresGlobal = pages.flat();
+    allScoresGlobal = pages.flat().filter(e => e.score >= 15);
     globalRanks     = computeTiedRanks(allScoresGlobal);
 
     if (allScoresGlobal.length === 0) {
