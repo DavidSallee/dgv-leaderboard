@@ -172,6 +172,7 @@
     display: flex; align-items: baseline;
     justify-content: space-between;
     margin-bottom: 8px;
+    position: relative; z-index: 2;
   }
   .course-block-num {
     font-family: 'DM Mono', monospace;
@@ -186,9 +187,11 @@
     color: var(--white);
     margin-bottom: 8px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    position: relative; z-index: 2;
   }
   .holes-row {
     display: flex; gap: 5px;
+    position: relative; z-index: 2;
   }
   /* Canvas animation overlay used in course blocks and scorecard trays */
   .fx-canvas {
@@ -1018,17 +1021,63 @@ function hexToRgb(hex) {
 }
 
 function fxGlow(ctx, W, H, color) {
-  const [r,g,b] = hexToRgb(color);
+  // Combined: arcing sun (slowed) + heat shimmer in lower third
   let t = 0;
   function frame() {
-    ctx.clearRect(0,0,W,H);
-    const op = 0.10 + Math.sin(t) * 0.07; t += 0.03;
-    const grad = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,W*0.6);
-    grad.addColorStop(0,   `rgba(${r},${g},${b},${op})`);
-    grad.addColorStop(0.6, `rgba(${r},${g},${b},${op*0.3})`);
-    grad.addColorStop(1,   `rgba(${r},${g},${b},0)`);
-    ctx.fillStyle = grad; ctx.fillRect(0,0,W,H);
-    requestAnimationFrame(frame);
+    ctx.clearRect(0, 0, W, H);
+
+    // Sun position — slow arc across top third
+    const progress = (Math.sin(t * 0.003) + 1) / 2;
+    const sunX = 28 + progress * (W - 56);
+    const sunY = Math.round(H * 0.25) + Math.sin(progress * Math.PI) * -6;
+
+    // Warm background wash following sun
+    const bgGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, W * 0.75);
+    bgGrad.addColorStop(0,   `rgba(255,230,80,0.13)`);
+    bgGrad.addColorStop(0.4, `rgba(255,180,20,0.05)`);
+    bgGrad.addColorStop(1,   `rgba(255,140,0,0)`);
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+
+    // Heat shimmer lines rising from bottom third
+    const shimmerTop = H * 0.62;
+    for (let i = 0; i < 10; i++) {
+      const x = (i / 10) * W + 16 + Math.sin(t * 0.015 + i) * 5;
+      const op = 0.03 + Math.sin(t * 0.035 + i * 1.4) * 0.02;
+      ctx.beginPath();
+      ctx.moveTo(x, H);
+      for (let y = H; y > shimmerTop; y -= 4) {
+        const wave = Math.sin(t * 0.025 + y * 0.09 + i) * 2.5;
+        ctx.lineTo(x + wave, y - 4);
+      }
+      ctx.strokeStyle = `rgba(255,220,60,${op})`;
+      ctx.lineWidth = 1.5; ctx.stroke();
+    }
+
+    // Spinning rays around sun
+    const rayCount = 12;
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2 + t * 0.008;
+      const inner = 10, outer = 20 + (i % 3) * 5;
+      ctx.beginPath();
+      ctx.moveTo(sunX + Math.cos(angle) * inner, sunY + Math.sin(angle) * inner);
+      ctx.lineTo(sunX + Math.cos(angle) * outer,  sunY + Math.sin(angle) * outer);
+      ctx.strokeStyle = `rgba(255,230,50,${0.3 + Math.sin(t * 0.05 + i) * 0.12})`;
+      ctx.lineWidth = 1.5; ctx.lineCap = 'round'; ctx.stroke();
+    }
+
+    // Outer glow halo
+    const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 18);
+    glow.addColorStop(0,   `rgba(255,255,180,0.9)`);
+    glow.addColorStop(0.4, `rgba(255,220,50,0.55)`);
+    glow.addColorStop(1,   `rgba(255,180,0,0)`);
+    ctx.beginPath(); ctx.arc(sunX, sunY, 18, 0, Math.PI * 2);
+    ctx.fillStyle = glow; ctx.fill();
+
+    // Sun core
+    ctx.beginPath(); ctx.arc(sunX, sunY, 7, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,220,0.95)`; ctx.fill();
+
+    t++; requestAnimationFrame(frame);
   }
   frame();
 }
