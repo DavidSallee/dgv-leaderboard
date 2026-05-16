@@ -1258,41 +1258,96 @@ function fxSnow(ctx, W, H, color) {
 }
 
 function fxBear(ctx, W, H, color) {
-  const [r,g,b] = hexToRgb(color);
-  const trackSets=[]; let nextTrack=60, t=0;
-  function newSet(){
-    const bY=22+Math.random()*46, stepX=28+Math.random()*8, stepY=12+Math.random()*7;
-    return { paws: Array.from({length:6},(_,i)=>({
-      x:-30+i*stepX, y:bY+(i%2===0?-stepY/2:stepY/2),
-      side:i%2===0?-1:1, opacity:0, born:t+i*38,
-    }))};
+  function makeClaws(cx, count, spread) {
+    const claws = [], slant = 0.18;
+    for (let i = 0; i < count; i++) {
+      const offset = (i - (count-1)/2) * spread;
+      const tipX = cx + offset + i * slant * spread;
+      const tipY = 2 + Math.random() * 4;
+      const tipW = 2.5 + Math.random() * 1.5;
+      const points = [{x:tipX, y:tipY, w:tipW*0.2}];
+      let px = tipX, py = tipY;
+      const totalLen = H * 0.60 + Math.random() * H * 0.2;
+      const steps = 16;
+      for (let s = 1; s <= steps; s++) {
+        const prog = s / steps;
+        px += (Math.random()-0.48)*3.5 + slant*spread*0.06;
+        py += totalLen / steps;
+        const w = tipW * (prog < 0.12 ? prog/0.12 : prog > 0.75 ? (1-prog)/0.25 : 1);
+        points.push({x:px, y:py, w:Math.max(0.3,w)});
+      }
+      const leftEdge=[], rightEdge=[];
+      for (let s = 0; s < points.length; s++) {
+        const p = points[s], jag=(Math.random()-0.5)*2.5;
+        leftEdge.push({x:p.x-p.w-jag, y:p.y});
+        rightEdge.push({x:p.x+p.w+jag, y:p.y});
+      }
+      claws.push({points, leftEdge, rightEdge, tipX, tipY, tipW});
+    }
+    return claws;
   }
-  function drawPaw(x,y,s,side,op){
-    ctx.save(); ctx.translate(x,y); ctx.rotate(side*0.25); ctx.globalAlpha=op;
-    ctx.fillStyle=`rgb(${r},${g},${b})`;
-    ctx.beginPath(); ctx.ellipse(0,0,s,s*1.1,0,0,Math.PI*2); ctx.fill();
-    [[-s*0.65,-s*1.0],[0,-s*1.3],[s*0.65,-s*1.0],[s*1.1,-s*0.45],[-s*1.1,-s*0.45]].forEach(([dx,dy])=>{
-      ctx.beginPath(); ctx.arc(dx,dy,s*0.38,0,Math.PI*2); ctx.fill();
-    });
-    ctx.globalAlpha=1; ctx.restore();
+
+  function drawTear(claw, progress, opacity) {
+    const pts=claw.points, le=claw.leftEdge, re=claw.rightEdge;
+    const end=Math.max(1, Math.floor(pts.length*progress));
+    ctx.beginPath(); ctx.moveTo(le[0].x,le[0].y);
+    for(let i=1;i<end;i++) ctx.lineTo(le[i].x,le[i].y);
+    for(let i=end-1;i>=0;i--) ctx.lineTo(re[i].x,re[i].y);
+    ctx.closePath();
+    ctx.fillStyle=`rgba(0,0,0,${opacity*0.75})`; ctx.fill();
+    ctx.strokeStyle=`rgba(255,120,0,${opacity*0.22})`; ctx.lineWidth=5; ctx.lineJoin='round'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(le[0].x,le[0].y);
+    for(let i=1;i<end;i++) ctx.lineTo(le[i].x,le[i].y);
+    ctx.strokeStyle=`rgba(255,160,40,${opacity*0.9})`; ctx.lineWidth=1.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(re[0].x,re[0].y);
+    for(let i=1;i<end;i++) ctx.lineTo(re[i].x,re[i].y);
+    ctx.strokeStyle=`rgba(255,160,40,${opacity*0.9})`; ctx.lineWidth=1.2; ctx.stroke();
   }
-  function frame(){
+
+  function drawLeadingTip(claw, progress, opacity) {
+    const pts=claw.points;
+    const end=Math.min(pts.length-1, Math.max(0, Math.floor(pts.length*progress)));
+    const cur=pts[end], prev=pts[Math.max(0,end-1)];
+    const angle=Math.atan2(cur.y-prev.y, cur.x-prev.x);
+    const tipLen=9, tipHalf=4;
+    const perpX=Math.cos(angle-Math.PI/2), perpY=Math.sin(angle-Math.PI/2);
+    const apexX=cur.x+Math.cos(angle)*tipLen*0.5, apexY=cur.y+Math.sin(angle)*tipLen*0.5;
+    const baseX=cur.x-Math.cos(angle)*tipLen*0.5, baseY=cur.y-Math.sin(angle)*tipLen*0.5;
+    const grad=ctx.createRadialGradient(cur.x,cur.y,0,cur.x,cur.y,tipLen*1.8);
+    grad.addColorStop(0, `rgba(255,200,80,${opacity*0.4})`);
+    grad.addColorStop(0.5,`rgba(255,120,0,${opacity*0.15})`);
+    grad.addColorStop(1,  `rgba(255,80,0,0)`);
+    ctx.beginPath(); ctx.arc(cur.x,cur.y,tipLen*1.8,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(apexX,apexY);
+    ctx.lineTo(baseX+perpX*tipHalf, baseY+perpY*tipHalf);
+    ctx.lineTo(baseX-perpX*tipHalf, baseY-perpY*tipHalf);
+    ctx.closePath();
+    ctx.fillStyle=`rgba(255,240,160,${opacity*0.95})`; ctx.fill();
+    ctx.strokeStyle=`rgba(255,180,60,${opacity*0.8})`; ctx.lineWidth=0.8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(apexX,apexY,1.5,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,220,${opacity})`; ctx.fill();
+  }
+
+  let state='waiting', waitTimer=30, t=0, claws=null, drawProgress=0, holdTimer=0, fadeLife=1;
+  const DRAW_SPEED=0.018, HOLD_TIME=100, FADE_SPEED=0.010, WAIT_MIN=80;
+
+  function frame() {
     ctx.clearRect(0,0,W,H); t++;
-    if(t>=nextTrack){trackSets.push(newSet());nextTrack=t+220+Math.floor(Math.random()*100);}
-    for(let i=trackSets.length-1;i>=0;i--){
-      const set=trackSets[i]; let allGone=true;
-      set.paws.forEach(paw=>{
-        if(t>=paw.born){
-          const age=t-paw.born;
-          if(age<20) paw.opacity=Math.min(0.55,age/20*0.55);
-          else if(age<130) paw.opacity=0.55;
-          else paw.opacity=Math.max(0,0.55-(age-130)/80*0.55);
-          paw.x+=0.18;
-        }
-        if(paw.opacity>0) allGone=false;
-        if(paw.opacity>0.01) drawPaw(paw.x,paw.y,4,paw.side,paw.opacity);
-      });
-      if(allGone&&t>set.paws[set.paws.length-1].born+210) trackSets.splice(i,1);
+    if (state==='waiting') {
+      if(--waitTimer<=0){ claws=makeClaws(45+Math.random()*(W-90),4,14); drawProgress=0; holdTimer=0; fadeLife=1; state='drawing'; }
+    } else if (state==='drawing') {
+      drawProgress=Math.min(1,drawProgress+DRAW_SPEED);
+      claws.forEach(cl=>{ drawTear(cl,drawProgress,1); drawLeadingTip(cl,drawProgress,1); });
+      if(drawProgress>=1) state='holding';
+    } else if (state==='holding') {
+      claws.forEach(cl=>{ drawTear(cl,1,1); drawLeadingTip(cl,1,0.85); });
+      if(++holdTimer>=HOLD_TIME) state='fading';
+    } else if (state==='fading') {
+      fadeLife=Math.max(0,fadeLife-FADE_SPEED);
+      claws.forEach(cl=>{ drawTear(cl,1,fadeLife); drawLeadingTip(cl,1,fadeLife*0.85); });
+      if(fadeLife<=0){ state='waiting'; waitTimer=WAIT_MIN+Math.floor(Math.random()*80); }
     }
     requestAnimationFrame(frame);
   }
