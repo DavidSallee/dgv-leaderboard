@@ -223,43 +223,6 @@
     font-size: 9px; color: var(--green-neon); display: block; line-height: 1;
   }
 
-  /* ── Wind row ── */
-  .wind-row { display: flex; gap: 5px; margin-top: 4px; position: relative; z-index: 2; }
-  .wind-pip {
-    flex: 1; min-width: 0; text-align: center;
-    background: rgba(0,0,0,0.32); border: 1px solid var(--border);
-    border-radius: 4px; padding: 4px 2px 5px;
-  }
-  .wind-bars {
-    display: flex; gap: 2px; justify-content: center;
-    align-items: flex-end; height: 11px; margin-bottom: 3px;
-  }
-  .wind-bar { width: 4px; border-radius: 1px 1px 0 0; background: var(--border); }
-  .wind-bar.b1{height:3px} .wind-bar.b2{height:6px}
-  .wind-bar.b3{height:9px} .wind-bar.b4{height:11px}
-  .ws1 .wind-bar.active { background: #4ade80; }
-  .ws2 .wind-bar.active { background: #facc15; }
-  .ws3 .wind-bar.active { background: #fb923c; }
-  .ws4 .wind-bar.active { background: #f87171; }
-  .wind-speed-label {
-    font-family: 'DM Mono', monospace; font-size: 7px;
-    display: block; line-height: 1; margin-bottom: 3px; letter-spacing: 0.3px;
-  }
-  .ws1 .wind-speed-label { color: #4ade80; }
-  .ws2 .wind-speed-label { color: #facc15; }
-  .ws3 .wind-speed-label { color: #fb923c; }
-  .ws4 .wind-speed-label { color: #f87171; }
-  .wind-rel {
-    font-family: 'DM Mono', monospace; font-size: 7px;
-    display: block; line-height: 1.25;
-    white-space: nowrap; overflow: hidden;
-  }
-  .wr-head  .wind-rel { color: #f87171; }
-  .wr-tail  .wind-rel { color: #4ade80; }
-  .wr-cross .wind-rel { color: #facc15; }
-  .wr-xhead .wind-rel { color: #fb923c; }
-  .wr-xtail .wind-rel { color: #a3e635; }
-
   /* ── 9-Hole Scorecard ── */
   .scorecard-row {
     display: grid;
@@ -647,13 +610,12 @@ function SystemRandom(seed) {
   }
 
   function next() { return internalSample(); }
-  function nextDouble() { return internalSample() / 2147483647.0; }
   function nextRange(min, max) {
     const range = max - min;
     if (range <= 1) return min;
     return min + Math.floor((internalSample() / 2147483647.0) * range);
   }
-  return { next, nextDouble, nextRange };
+  return { next, nextRange };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -700,100 +662,12 @@ function generateLayout(seed) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  Hole bearing table — tee-facing direction (degrees, 0=N 90=E)
-//  Calibrated from mobile game compass screenshots, all 68 holes.
-// ═══════════════════════════════════════════════════════════════════
-const HOLE_BEARINGS = {
-  'Sunshine Glade':    { 1:135, 2:180, 3:45,  4:270, 5:315 },
-  'Blueberry Thicket': { 1:90,  2:270, 3:0,   4:270, 5:0,   6:0,   7:45,  8:90,  9:0   },
-  'Oak Hill':          { 1:180, 2:225, 3:270, 4:45,  5:180, 6:315, 7:180, 8:180, 9:180 },
-  'Lakeside':          { 1:45,  2:45,  3:45,  4:180, 5:180, 6:45,  7:45,  8:315, 9:180 },
-  'Windswept Fields':  { 1:180, 2:180, 3:45,  4:315, 5:180, 6:45,  7:180, 8:135, 9:90  },
-  'Harrowing Woods':   { 1:45,  2:45,  3:45,  4:135, 5:180, 6:180, 7:180, 8:135, 9:45  },
-  'The Crows Nest':    { 1:135, 2:315, 3:180, 4:0,   5:45,  6:0,   7:315, 8:180, 9:315 },
-  'Grizzly Gulch':     { 1:315, 2:0,   3:0,   4:315, 5:180, 6:180, 7:270, 8:0,   9:180 }
-};
-
-// ═══════════════════════════════════════════════════════════════════
-//  Wind generation — continues the same RNG stream after layout.
-//  Per hole (confirmed from Ghidra decompilation):
-//    Call 1: nextRange(minWind, maxWind+1) → speed (relative, scene-baked bounds unknown)
-//    Call 2: nextRange(50, 131)            → base direction 50–130°
-//    Call 3: nextDouble() > 0.5            → flip +180°
-//    Call 4: nextRange(1, 5)              → weather streak duration (consumed only)
-// ═══════════════════════════════════════════════════════════════════
-function generateWind(seed, layout) {
-  const rng = SystemRandom(seed);
-  // Replay layout RNG exactly
-  const pool = COURSES.slice(), selected = [];
-  for (let i = 0; i < 3; i++) {
-    const idx = rng.nextRange(0, pool.length);
-    selected.push(pool[idx]); pool.splice(idx, 1);
-  }
-  for (const course of selected)
-    for (let i = 0; i < course.holes.length; i++) rng.next();
-
-  const SPEED_LABELS = ['', 'Calm', 'Light', 'Moderate', 'Strong'];
-
-  // Classify wind from the player's perspective on the tee.
-  // windDeg = direction wind blows TOWARD; holeDeg = tee-facing bearing.
-  function classifyWind(windDeg, holeDeg) {
-    const fromDeg = (windDeg + 180) % 360;          // direction wind comes FROM
-    const rel     = ((fromDeg - holeDeg) + 360) % 360; // relative to player facing
-    const foreAft = Math.cos(rel * Math.PI / 180);  // +1=tail, -1=head
-    const lateral = Math.sin(rel * Math.PI / 180);  // +1=L→R, -1=R→L
-    const T = 0.5; // threshold ~30° — within this of an axis = "pure"
-    if (Math.abs(foreAft) >= T && Math.abs(lateral) < T)
-      return foreAft > 0
-        ? { label: '↓ Tailwind',   cls: 'wr-tail'  }
-        : { label: '↑ Headwind',   cls: 'wr-head'  };
-    if (Math.abs(lateral) >= T && Math.abs(foreAft) < T)
-      return lateral > 0
-        ? { label: '→ L→R Cross',  cls: 'wr-cross' }
-        : { label: '← R→L Cross',  cls: 'wr-cross' };
-    if (foreAft < 0 && lateral > 0) return { label: '↗ L→R Head', cls: 'wr-xhead' };
-    if (foreAft < 0 && lateral < 0) return { label: '↖ R→L Head', cls: 'wr-xhead' };
-    if (foreAft > 0 && lateral > 0) return { label: '↘ L→R Tail', cls: 'wr-xtail' };
-    return                                 { label: '↙ R→L Tail', cls: 'wr-xtail' };
-  }
-
-  return layout.courses.map(function(entry) {
-    return entry.holes.map(function(h) {
-      var rawSpeed = rng.next() / 2147483647;
-      var tier     = rawSpeed < 0.25 ? 1 : rawSpeed < 0.50 ? 2 : rawSpeed < 0.75 ? 3 : 4;
-      var baseDeg  = rng.nextRange(50, 131);
-      var flipped  = rng.nextDouble() > 0.5;
-      var windDeg  = flipped ? (baseDeg + 180) % 360 : baseDeg;
-      rng.nextRange(1, 5);
-      var bearings = HOLE_BEARINGS[entry.course.name];
-      var holeDeg  = (bearings && bearings[h.holeNum] !== undefined) ? bearings[h.holeNum] : null;
-      var rel      = holeDeg !== null ? classifyWind(windDeg, holeDeg)
-                                     : { label: '? Unknown', cls: 'wr-cross' };
-      return { tier: tier, speedLabel: SPEED_LABELS[tier], rel: rel };
-    });
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════
 //  Render layout strip
 // ═══════════════════════════════════════════════════════════════════
 function renderLayout(seed, layout) {
   document.getElementById('seedBadge').textContent      = `Seed ${seed}`;
   document.getElementById('layoutParBadge').textContent = layout.totalPar;
   seededPar = layout.totalPar;
-
-  // Generate wind continuing the same RNG stream
-  var wind;
-  try {
-    wind = generateWind(seed, layout);
-  } catch(e) {
-    console.error('generateWind error:', e);
-    // Fallback: empty wind data so layout still renders
-    wind = layout.courses.map(entry => entry.holes.map(() => ({
-      tier: 0, speedLabel: '?',
-      rel: { label: '? Error', cls: 'wr-cross' }
-    })));
-  }
 
   // Map each course name to its identity color
   const COURSE_COLORS = {
@@ -811,29 +685,14 @@ function renderLayout(seed, layout) {
     COURSE_COLORS[entry.course.name] || 'var(--green-neon)'
   );
 
-  // Build one wind pip
-  function windPip(w) {
-    var t = w.tier || 0;
-    var bars = [1,2,3,4].map(function(b) {
-      return '<div class="wind-bar b' + b + (b <= t ? ' active' : '') + '"></div>';
-    }).join('');
-    return '<div class="wind-pip ws' + t + ' ' + w.rel.cls + '">' +
-      '<div class="wind-bars">' + bars + '</div>' +
-      '<span class="wind-speed-label">' + w.speedLabel + '</span>' +
-      '<span class="wind-rel">' + w.rel.label + '</span>' +
-      '</div>';
-  }
-
   document.getElementById('coursesRow').innerHTML = layout.courses.map((entry, ci) => {
     const color = courseColors[ci];
     const holeChips = entry.holes.map(h => `
       <div class="hole-pip">
         <span class="hole-pip-num">Hole</span>
         <span class="hole-pip-n">${h.holeNum}</span>
-        <span class="hole-pip-par">Par ${h.par}</span>
       </div>
     `).join('');
-    const windPips = wind[ci].map(w => windPip(w)).join('');
 
     return `
       <div class="course-block" style="border-top: 2px solid ${color};" data-course="${entry.course.name}">
@@ -844,7 +703,6 @@ function renderLayout(seed, layout) {
         </div>
         <div class="course-block-name" style="color:${color};">${entry.course.name}</div>
         <div class="holes-row" style="--course-color:${color};">${holeChips}</div>
-        <div class="wind-row">${windPips}</div>
       </div>
     `;
   }).join('');
