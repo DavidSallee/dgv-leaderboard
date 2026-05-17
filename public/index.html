@@ -223,6 +223,49 @@
     font-size: 9px; color: var(--green-neon); display: block; line-height: 1;
   }
 
+  /* ── Wind row (below holes-row in each course block) ── */
+  .wind-row { display: flex; gap: 5px; margin-top: 4px; position: relative; z-index: 2; }
+  .wind-pip {
+    flex: 1; min-width: 0; text-align: center;
+    background: rgba(0,0,0,0.32); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 2px 5px;
+  }
+  /* Strength bars */
+  .wind-bars {
+    display: flex; gap: 2px; justify-content: center;
+    align-items: flex-end; height: 11px; margin-bottom: 3px;
+  }
+  .wind-bar { width: 4px; border-radius: 1px 1px 0 0; background: var(--border); }
+  .wind-bar.b1{height:3px} .wind-bar.b2{height:6px}
+  .wind-bar.b3{height:9px} .wind-bar.b4{height:11px}
+  /* Active colours per tier */
+  .ws1 .wind-bar.active { background: #4ade80; }
+  .ws2 .wind-bar.active { background: #facc15; }
+  .ws3 .wind-bar.active { background: #fb923c; }
+  .ws4 .wind-bar.active { background: #f87171; }
+  /* Speed label */
+  .wind-speed-label {
+    font-family: 'DM Mono', monospace; font-size: 7px;
+    display: block; line-height: 1; margin-bottom: 3px;
+    letter-spacing: 0.3px;
+  }
+  .ws1 .wind-speed-label { color: #4ade80; }
+  .ws2 .wind-speed-label { color: #facc15; }
+  .ws3 .wind-speed-label { color: #fb923c; }
+  .ws4 .wind-speed-label { color: #f87171; }
+  /* Relative wind direction */
+  .wind-rel {
+    font-family: 'DM Mono', monospace; font-size: 7px;
+    display: block; line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: clip;
+  }
+  /* Colour by type */
+  .wr-head  .wind-rel { color: #f87171; }   /* headwind  – tough */
+  .wr-tail  .wind-rel { color: #4ade80; }   /* tailwind  – helpful */
+  .wr-cross .wind-rel { color: #facc15; }   /* pure cross */
+  .wr-xhead .wind-rel { color: #fb923c; }   /* crossing headwind */
+  .wr-xtail .wind-rel { color: #a3e635; }   /* crossing tailwind */
+
   /* ── 9-Hole Scorecard ── */
   .scorecard-row {
     display: grid;
@@ -662,12 +705,119 @@ function generateLayout(seed) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Hole bearing table — tee-facing direction (degrees, 0=N 90=E etc.)
+//  Derived from mobile game compass screenshots for all 8 courses.
+// ═══════════════════════════════════════════════════════════════════
+const HOLE_BEARINGS = {
+  'Sunshine Glade':    { 1:135, 2:180, 3:45,  4:270, 5:315 },
+  'Blueberry Thicket': { 1:90,  2:270, 3:0,   4:270, 5:0,   6:0,   7:45,  8:90,  9:0   },
+  'Oak Hill':          { 1:180, 2:225, 3:270, 4:45,  5:180, 6:315, 7:180, 8:180, 9:180 },
+  'Lakeside':          { 1:45,  2:45,  3:45,  4:180, 5:180, 6:45,  7:45,  8:315, 9:180 },
+  'Windswept Fields':  { 1:180, 2:180, 3:45,  4:315, 5:180, 6:45,  7:180, 8:135, 9:90  },
+  'Harrowing Woods':   { 1:45,  2:45,  3:45,  4:135, 5:180, 6:180, 7:180, 8:135, 9:45  },
+  'The Crows Nest':    { 1:135, 2:315, 3:180, 4:0,   5:45,  6:0,   7:315, 8:180, 9:315 },
+  'Grizzly Gulch':     { 1:315, 2:0,   3:0,   4:315, 5:180, 6:180, 7:270, 8:0,   9:180 }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  Wind generation — continues the same RNG stream after layout.
+//
+//  Per hole, Wind() then Weather() each consume from GetRandom():
+//    Call 1: nextRange(minWind, maxWind+1) → speed (scene-baked bounds)
+//    Call 2: nextRange(50, 131)            → base direction 50–130°
+//    Call 3: nextDouble() > 0.5            → flip direction +180°
+//    Call 4: nextRange(1, 5)              → weather streak (consumed only)
+//  Condition (rain/snow/clear) is time-based, not seed-derived.
+// ═══════════════════════════════════════════════════════════════════
+function generateWind(seed, layout) {
+  const rng = SystemRandom(seed);
+  // Replay layout RNG consumption exactly
+  const pool = COURSES.slice(), selected = [];
+  for (let i = 0; i < 3; i++) {
+    const idx = rng.nextRange(0, pool.length);
+    selected.push(pool[idx]); pool.splice(idx, 1);
+  }
+  for (const course of selected)
+    for (let i = 0; i < course.holes.length; i++) rng.next();
+
+  // Speed tier labels and CSS classes
+  const SPEED_LABELS = ['', 'Calm', 'Light', 'Moderate', 'Strong'];
+
+  // Classify wind relative to the hole's tee-facing bearing.
+  // windDeg: direction wind is BLOWING TOWARD (from the RNG).
+  // holeDeg: direction player faces (tee→basket).
+  // We need: from the player's perspective standing on the tee,
+  // is the wind coming from in front (headwind), behind (tailwind),
+  // or from the sides, and which side?
+  function classifyWind(windDeg, holeDeg) {
+    // "wind coming FROM" = windDeg + 180
+    const fromDeg = (windDeg + 180) % 360;
+    // Angle of wind source relative to player facing direction
+    // 0° = wind from behind (tailwind), 180° = wind from front (headwind)
+    let rel = ((fromDeg - holeDeg) + 360) % 360;
+
+    // Decompose into fore-aft and lateral components
+    const foreAft  = Math.cos(rel * Math.PI / 180); // +1=tailwind, -1=headwind
+    const lateral  = Math.sin(rel * Math.PI / 180); // +1=left-to-right, -1=right-to-left
+
+    const headTail = Math.abs(foreAft);   // how much fore/aft
+    const crossAmt = Math.abs(lateral);   // how much lateral
+
+    // Determine primary character
+    const threshold = 0.5; // sin/cos 30° ≈ 0.5 — within 30° of axis = "pure"
+
+    if (headTail >= threshold && crossAmt < threshold) {
+      // Predominantly fore-aft
+      return foreAft > 0
+        ? { label: '↓ Tailwind',  cls: 'wr-tail',  arrow: '↓' }
+        : { label: '↑ Headwind',  cls: 'wr-head',  arrow: '↑' };
+    }
+    if (crossAmt >= threshold && headTail < threshold) {
+      // Predominantly lateral
+      return lateral > 0
+        ? { label: '→ L→R Cross', cls: 'wr-cross', arrow: '→' }
+        : { label: '← R→L Cross', cls: 'wr-cross', arrow: '←' };
+    }
+    // Mixed — diagonal winds
+    if (foreAft < 0 && lateral > 0) return { label: '↗ L→R Head', cls: 'wr-xhead', arrow: '↗' };
+    if (foreAft < 0 && lateral < 0) return { label: '↖ R→L Head', cls: 'wr-xhead', arrow: '↖' };
+    if (foreAft > 0 && lateral > 0) return { label: '↘ L→R Tail', cls: 'wr-xtail', arrow: '↘' };
+    return                                  { label: '↙ R→L Tail', cls: 'wr-xtail', arrow: '↙' };
+  }
+
+  return layout.courses.map(entry =>
+    entry.holes.map(h => {
+      // Call 1: speed
+      const rawSpeed = rng.next() / 2147483647;
+      const tier = rawSpeed < 0.25 ? 1 : rawSpeed < 0.50 ? 2 : rawSpeed < 0.75 ? 3 : 4;
+      // Call 2: direction
+      const baseDeg = rng.nextRange(50, 131);
+      // Call 3: flip
+      const flipped = rng.nextDouble() > 0.5;
+      const windDeg = flipped ? (baseDeg + 180) % 360 : baseDeg;
+      // Call 4: weather streak (consumed, not displayed)
+      rng.nextRange(1, 5);
+
+      const holeDeg = (HOLE_BEARINGS[entry.course.name] || {})[h.holeNum] ?? null;
+      const rel = holeDeg !== null
+        ? classifyWind(windDeg, holeDeg)
+        : { label: '? Unknown', cls: 'wr-cross', arrow: '?' };
+
+      return { tier, speedLabel: SPEED_LABELS[tier], rel };
+    })
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Render layout strip
 // ═══════════════════════════════════════════════════════════════════
 function renderLayout(seed, layout) {
   document.getElementById('seedBadge').textContent      = `Seed ${seed}`;
   document.getElementById('layoutParBadge').textContent = layout.totalPar;
   seededPar = layout.totalPar;
+
+  // Generate wind data continuing the same RNG stream
+  const wind = generateWind(seed, layout);
 
   // Map each course name to its identity color
   const COURSE_COLORS = {
@@ -685,14 +835,31 @@ function renderLayout(seed, layout) {
     COURSE_COLORS[entry.course.name] || 'var(--green-neon)'
   );
 
+  // Build a single wind pip
+  function windPip(w) {
+    const bars = [1,2,3,4].map(b =>
+      `<div class="wind-bar b${b}${b <= w.tier ? ' active' : ''}"></div>`
+    ).join('');
+    return `
+      <div class="wind-pip ws${w.tier} ${w.rel.cls}">
+        <div class="wind-bars">${bars}</div>
+        <span class="wind-speed-label">${w.speedLabel}</span>
+        <span class="wind-rel">${w.rel.label}</span>
+      </div>`;
+  }
+
   document.getElementById('coursesRow').innerHTML = layout.courses.map((entry, ci) => {
     const color = courseColors[ci];
+
     const holeChips = entry.holes.map(h => `
       <div class="hole-pip">
         <span class="hole-pip-num">Hole</span>
         <span class="hole-pip-n">${h.holeNum}</span>
+        <span class="hole-pip-par">Par ${h.par}</span>
       </div>
     `).join('');
+
+    const windPips = wind[ci].map(w => windPip(w)).join('');
 
     return `
       <div class="course-block" style="border-top: 2px solid ${color};" data-course="${entry.course.name}">
@@ -703,6 +870,7 @@ function renderLayout(seed, layout) {
         </div>
         <div class="course-block-name" style="color:${color};">${entry.course.name}</div>
         <div class="holes-row" style="--course-color:${color};">${holeChips}</div>
+        <div class="wind-row">${windPips}</div>
       </div>
     `;
   }).join('');
