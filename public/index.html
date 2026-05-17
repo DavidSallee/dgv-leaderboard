@@ -757,20 +757,21 @@ function generateWind(seed, layout) {
     return                                 { label: '↙ R→L Tail', cls: 'wr-xtail' };
   }
 
-  return layout.courses.map(entry =>
-    entry.holes.map(h => {
-      const rawSpeed = rng.next() / 2147483647;
-      const tier     = rawSpeed < 0.25 ? 1 : rawSpeed < 0.50 ? 2 : rawSpeed < 0.75 ? 3 : 4;
-      const baseDeg  = rng.nextRange(50, 131);
-      const flipped  = rng.nextDouble() > 0.5;
-      const windDeg  = flipped ? (baseDeg + 180) % 360 : baseDeg;
-      rng.nextRange(1, 5); // weather streak — consumed, not displayed
-      const holeDeg  = (HOLE_BEARINGS[entry.course.name] || {})[h.holeNum] ?? null;
-      const rel      = holeDeg !== null ? classifyWind(windDeg, holeDeg)
-                                       : { label: '? Unknown', cls: 'wr-cross' };
-      return { tier, speedLabel: SPEED_LABELS[tier], rel };
-    })
-  );
+  return layout.courses.map(function(entry) {
+    return entry.holes.map(function(h) {
+      var rawSpeed = rng.next() / 2147483647;
+      var tier     = rawSpeed < 0.25 ? 1 : rawSpeed < 0.50 ? 2 : rawSpeed < 0.75 ? 3 : 4;
+      var baseDeg  = rng.nextRange(50, 131);
+      var flipped  = rng.nextDouble() > 0.5;
+      var windDeg  = flipped ? (baseDeg + 180) % 360 : baseDeg;
+      rng.nextRange(1, 5);
+      var bearings = HOLE_BEARINGS[entry.course.name];
+      var holeDeg  = (bearings && bearings[h.holeNum] !== undefined) ? bearings[h.holeNum] : null;
+      var rel      = holeDeg !== null ? classifyWind(windDeg, holeDeg)
+                                     : { label: '? Unknown', cls: 'wr-cross' };
+      return { tier: tier, speedLabel: SPEED_LABELS[tier], rel: rel };
+    });
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -782,7 +783,17 @@ function renderLayout(seed, layout) {
   seededPar = layout.totalPar;
 
   // Generate wind continuing the same RNG stream
-  const wind = generateWind(seed, layout);
+  var wind;
+  try {
+    wind = generateWind(seed, layout);
+  } catch(e) {
+    console.error('generateWind error:', e);
+    // Fallback: empty wind data so layout still renders
+    wind = layout.courses.map(entry => entry.holes.map(() => ({
+      tier: 0, speedLabel: '?',
+      rel: { label: '? Error', cls: 'wr-cross' }
+    })));
+  }
 
   // Map each course name to its identity color
   const COURSE_COLORS = {
@@ -802,15 +813,15 @@ function renderLayout(seed, layout) {
 
   // Build one wind pip
   function windPip(w) {
-    const bars = [1,2,3,4].map(b =>
-      `<div class="wind-bar b${b}${b <= w.tier ? ' active' : ''}"></div>`
-    ).join('');
-    return `
-      <div class="wind-pip ws${w.tier} ${w.rel.cls}">
-        <div class="wind-bars">${bars}</div>
-        <span class="wind-speed-label">${w.speedLabel}</span>
-        <span class="wind-rel">${w.rel.label}</span>
-      </div>`;
+    var t = w.tier || 0;
+    var bars = [1,2,3,4].map(function(b) {
+      return '<div class="wind-bar b' + b + (b <= t ? ' active' : '') + '"></div>';
+    }).join('');
+    return '<div class="wind-pip ws' + t + ' ' + w.rel.cls + '">' +
+      '<div class="wind-bars">' + bars + '</div>' +
+      '<span class="wind-speed-label">' + w.speedLabel + '</span>' +
+      '<span class="wind-rel">' + w.rel.label + '</span>' +
+      '</div>';
   }
 
   document.getElementById('coursesRow').innerHTML = layout.courses.map((entry, ci) => {
