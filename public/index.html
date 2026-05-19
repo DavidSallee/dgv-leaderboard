@@ -994,6 +994,11 @@ function renderLeaderboard() {
 
   // Stats bar
   const par = getPar();
+  function vsParStr(score) {
+    if (par === null) return '';
+    const d = score - par;
+    return d === 0 ? ' (E)' : d > 0 ? ` (+${d})` : ` (${d})`;
+  }
   const fmtAvg = par !== null ? (() => {
     const d = Math.round(avgScore) - par;
     return d === 0 ? 'E' : d > 0 ? `+${d}` : String(d);
@@ -1001,9 +1006,9 @@ function renderLeaderboard() {
 
   const statsEl = document.getElementById('statsBar');
   statsEl.innerHTML =
-    `Scores range from <span class="stat-val stat-low">${minScore}</span>` +
-    `<span class="stat-sep">&nbsp;to&nbsp;</span>` +
-    `<span class="stat-val stat-high">${maxScore}</span>` +
+    `Scores range from <span class="stat-val stat-low">${minScore}${vsParStr(minScore)}</span>` +
+    `&nbsp;to&nbsp;` +
+    `<span class="stat-val stat-high">${maxScore}${vsParStr(maxScore)}</span>` +
     `<span class="stat-sep">&nbsp;&nbsp;·&nbsp;&nbsp;</span>` +
     `Avg: <span class="stat-val stat-avg">${avgRounded}` +
     (fmtAvg !== null ? ` (${fmtAvg} vs par)` : '') +
