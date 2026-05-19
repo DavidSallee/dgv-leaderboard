@@ -1007,7 +1007,7 @@ function initCourseAnimations(layout) {
     if (name === 'Sunshine Glade')    fxGlow(ctx, W, H, '#ffe600');
     if (name === 'Blueberry Thicket') fxBubbles(ctx, W, H, '#a855f7');
     if (name === 'Oak Hill')          fxLeaves(ctx, W, H, '#f0f4f0');
-    if (name === 'Lakeside')          fxWater(ctx, W, H, '#7dd3fc');
+    if (name === 'Lakeside')          fxDiscFlight(ctx, W, H);
     if (name === 'Windswept Fields')  fxClouds(ctx, W, H, '#00CED1');
     if (name === 'Harrowing Woods')   fxFireflies(ctx, W, H, '#b8ff50');
     if (name === 'The Crows Nest')    fxSnow(ctx, W, H, '#9ca3af');
@@ -1141,6 +1141,201 @@ function fxLeaves(ctx, W, H, color) {
       if(l.x<-10) l.x=W+10; if(l.x>W+10) l.x=-10;
       drawLeaf(l.x,l.y,l.size,l.rotation,l.color,l.opacity);
     });
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+function fxDiscFlight(ctx, W, H) {
+  // Water sits in the upper third so the animation is above the hole-pip boxes.
+  const WATER_Y = H * 0.38;   // horizon / waterline
+
+  // Island: square-ish, centered at 58% across, sitting ON the waterline
+  const ISLE_CX = W * 0.58;
+  const ISLE_W  = 28;
+  const ISLE_H  = 14;
+  const ISLE_TOP = WATER_Y - ISLE_H * 1.4;
+
+  // Splash lands visibly on-screen at 82% across
+  const SPLASH_X = W * 0.82;
+  const SPLASH_Y = WATER_Y + 5;
+
+  // Bezier path: enters left, arcs up, levels near basket, curves into splash
+  const P0 = { x: -8,           y: WATER_Y * 0.55 };
+  const P1 = { x: W * 0.25,     y: WATER_Y * 0.10 };
+  const P2 = { x: ISLE_CX + 4,  y: ISLE_TOP - 4   };
+  const P3 = { x: SPLASH_X,     y: SPLASH_Y        };
+
+  function bezier(t, p0, p1, p2, p3) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+      y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y,
+    };
+  }
+  function bezierTangent(t, p0, p1, p2, p3) {
+    const u = 1 - t;
+    return {
+      x: 3*(u*u*(p1.x-p0.x) + 2*u*t*(p2.x-p1.x) + t*t*(p3.x-p2.x)),
+      y: 3*(u*u*(p1.y-p0.y) + 2*u*t*(p2.y-p1.y) + t*t*(p3.y-p2.y)),
+    };
+  }
+
+  const SPLASH_DROPS = Array.from({ length: 9 }, () => ({
+    angle: -Math.PI * 0.5 + (Math.random() - 0.5) * Math.PI * 0.9,
+    speed: 0.8 + Math.random() * 1.4,
+    size:  1.0 + Math.random() * 1.6,
+    life:  0.6 + Math.random() * 0.35,
+    delay: Math.random() * 0.08,
+  }));
+
+  let discT = 0, splashActive = false, splashT = 0, waitT = 0;
+  const FLIGHT_SPEED = 0.0055, WAIT = 100;
+
+  function drawBackground() {
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, WATER_Y);
+    skyGrad.addColorStop(0,   'rgba(8,22,45,0.60)');
+    skyGrad.addColorStop(0.7, 'rgba(12,38,65,0.28)');
+    skyGrad.addColorStop(1,   'rgba(18,50,75,0.08)');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, WATER_Y);
+
+    const waterGrad = ctx.createLinearGradient(0, WATER_Y, 0, H);
+    waterGrad.addColorStop(0,   'rgba(8,38,80,0.70)');
+    waterGrad.addColorStop(0.5, 'rgba(12,55,100,0.55)');
+    waterGrad.addColorStop(1,   'rgba(4,22,58,0.50)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, WATER_Y, W, H - WATER_Y);
+
+    ctx.strokeStyle = 'rgba(125,211,252,0.18)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(0, WATER_Y); ctx.lineTo(W, WATER_Y); ctx.stroke();
+
+    const t = Date.now();
+    for (let i = 0; i < 6; i++) {
+      const shimY = WATER_Y + 4 + i * ((H - WATER_Y - 8) / 6);
+      const shimW = 7 + Math.sin(t * 0.0007 + i * 1.4) * 5;
+      const shimX = ((t * 0.038 * (1 + i * 0.18) + i * 32) % (W + 20)) - 10;
+      ctx.strokeStyle = `rgba(125,211,252,${0.04 + Math.abs(Math.sin(t*0.0011+i))*0.025})`;
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(shimX, shimY); ctx.lineTo(shimX + shimW, shimY); ctx.stroke();
+    }
+  }
+
+  function drawIsland() {
+    const ix = ISLE_CX;
+    const iw = ISLE_W, r = 4;
+    const left = ix - iw, right = ix + iw;
+    const top = ISLE_TOP, bot = WATER_Y + 3;
+
+    ctx.beginPath();
+    ctx.moveTo(left + r, top);
+    ctx.lineTo(right - r, top);
+    ctx.quadraticCurveTo(right, top, right, top + r);
+    ctx.lineTo(right, bot); ctx.lineTo(left, bot); ctx.lineTo(left, top + r);
+    ctx.quadraticCurveTo(left, top, left + r, top);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(18,58,28,0.82)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(55,130,75,0.55)'; ctx.lineWidth = 0.8; ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(74,180,80,0.30)'; ctx.lineWidth = 0.6;
+    for (let gi = 0; gi < 5; gi++) {
+      const gx = left + 5 + gi * ((iw * 2 - 10) / 4);
+      ctx.beginPath(); ctx.moveTo(gx, top + 2); ctx.lineTo(gx + 3, top - 1); ctx.stroke();
+    }
+
+    const BX = ix, BY = ISLE_TOP;
+    const POLE_H = 22, POLE_TOP = BY - POLE_H;
+    const BASKET_Y = POLE_TOP + POLE_H * 0.52;
+    const BOT_SPREAD = 7;
+
+    ctx.strokeStyle = 'rgba(210,210,190,0.75)'; ctx.lineWidth = 1.0;
+    ctx.beginPath(); ctx.moveTo(BX, BY); ctx.lineTo(BX, POLE_TOP); ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(210,210,190,0.65)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.ellipse(BX, POLE_TOP + 2, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
+
+    const CHAIN_COUNT = 6, TOP_SPREAD = 5;
+    ctx.lineWidth = 0.5;
+    for (let ci = 0; ci < CHAIN_COUNT; ci++) {
+      const frac = ci / (CHAIN_COUNT - 1);
+      const tx = BX - TOP_SPREAD + frac * TOP_SPREAD * 2;
+      const bx = BX - BOT_SPREAD + frac * BOT_SPREAD * 2;
+      const midX = (tx + bx) / 2 + Math.sin(frac * Math.PI) * 1.5;
+      const midY = (POLE_TOP + 2 + BASKET_Y) / 2;
+      ctx.strokeStyle = `rgba(195,195,170,${0.25 + (1 - Math.abs(frac - 0.5) * 2) * 0.25})`;
+      ctx.beginPath(); ctx.moveTo(tx, POLE_TOP + 2);
+      ctx.quadraticCurveTo(midX, midY, bx, BASKET_Y); ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(190,190,165,0.70)'; ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.ellipse(BX, BASKET_Y, BOT_SPREAD, 2.5, 0, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(175,175,150,0.45)'; ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(BX - BOT_SPREAD, BASKET_Y); ctx.lineTo(BX - BOT_SPREAD + 1, BASKET_Y + 4);
+    ctx.moveTo(BX + BOT_SPREAD, BASKET_Y); ctx.lineTo(BX + BOT_SPREAD - 1, BASKET_Y + 4);
+    ctx.stroke();
+  }
+
+  function drawDisc(pos, tangent) {
+    const angle = Math.atan2(tangent.y, tangent.x);
+    const LEN = 7, THK = 2;
+    ctx.save(); ctx.translate(pos.x, pos.y); ctx.rotate(angle);
+    const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, LEN * 2);
+    grd.addColorStop(0, 'rgba(125,211,252,0.28)'); grd.addColorStop(1, 'rgba(125,211,252,0)');
+    ctx.beginPath(); ctx.ellipse(0, 0, LEN * 2, LEN, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 0, LEN, THK, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(225,242,255,0.90)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(125,211,252,0.75)'; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTrail(tCur) {
+    for (let i = 16; i >= 1; i--) {
+      const p = bezier(Math.max(0, tCur - i * 0.010), P0, P1, P2, P3);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(125,211,252,${(1 - i / 16) * 0.14})`; ctx.fill();
+    }
+  }
+
+  function drawSplash(progress) {
+    const colH = Math.max(0, (1 - progress * 3)) * 12;
+    if (colH > 0) {
+      const colGrad = ctx.createLinearGradient(SPLASH_X, SPLASH_Y, SPLASH_X, SPLASH_Y - colH);
+      colGrad.addColorStop(0, 'rgba(180,235,255,0.55)'); colGrad.addColorStop(1, 'rgba(200,245,255,0)');
+      ctx.fillStyle = colGrad; ctx.fillRect(SPLASH_X - 2, SPLASH_Y - colH, 4, colH);
+    }
+    for (let ring = 0; ring < 4; ring++) {
+      const rp = Math.min(1, Math.max(0, (progress - ring * 0.12) / 0.65));
+      if (rp <= 0) continue;
+      ctx.beginPath(); ctx.ellipse(SPLASH_X, SPLASH_Y, rp*(8+ring*7), rp*(8+ring*7)*0.36, 0, 0, Math.PI*2);
+      ctx.strokeStyle = `rgba(125,211,252,${(1-rp)*(0.40-ring*0.07)})`; ctx.lineWidth = 0.85; ctx.stroke();
+    }
+    SPLASH_DROPS.forEach(d => {
+      const dp = Math.min(1, Math.max(0, (progress - d.delay) / d.life));
+      if (dp <= 0 || dp >= 1) return;
+      const dx = SPLASH_X + Math.cos(d.angle) * d.speed * dp * 18;
+      const dy = SPLASH_Y + Math.sin(d.angle) * d.speed * dp * 18 + dp * dp * 14;
+      ctx.beginPath(); ctx.arc(dx, dy, d.size * (1 - dp * 0.4), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(185,235,255,${(1-dp)*0.75})`; ctx.fill();
+    });
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    drawBackground(); drawIsland();
+    if (!splashActive) {
+      discT = Math.min(1, discT + FLIGHT_SPEED);
+      const pos = bezier(discT, P0, P1, P2, P3);
+      const tang = bezierTangent(discT, P0, P1, P2, P3);
+      drawTrail(discT); drawDisc(pos, tang);
+      if (discT >= 1) { splashActive = true; splashT = 0; }
+    } else {
+      splashT += 0.022; drawSplash(splashT);
+      if (splashT >= 1.6) { if (++waitT >= WAIT) { discT = 0; splashActive = false; waitT = 0; } }
+    }
     requestAnimationFrame(frame);
   }
   frame();
