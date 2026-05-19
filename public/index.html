@@ -1147,25 +1147,14 @@ function fxLeaves(ctx, W, H, color) {
 }
 
 function fxDiscFlight(ctx, W, H) {
-  // Water sits in the upper third so the animation is above the hole-pip boxes.
-  const WATER_Y = H * 0.38;   // horizon / waterline
+  // Waterline sits a bit lower so "Lakeside" text peeks above it.
+  // Island drops with it; basket top stays comfortably below the card's top border.
+  const WATER_Y  = H * 0.50;   // horizon / waterline (lowered from 0.38)
+  const ISLE_CX  = W * 0.58;
+  const ISLE_W   = 28;
+  const ISLE_TOP = WATER_Y - 22; // island rises ~22px above waterline
 
-  // Island: square-ish, centered at 58% across, sitting ON the waterline
-  const ISLE_CX = W * 0.58;
-  const ISLE_W  = 28;
-  const ISLE_H  = 14;
-  const ISLE_TOP = WATER_Y - ISLE_H * 1.4;
-
-  // Splash lands visibly on-screen at 82% across
-  const SPLASH_X = W * 0.82;
-  const SPLASH_Y = WATER_Y + 5;
-
-  // Bezier path: enters left, arcs up, levels near basket, curves into splash
-  const P0 = { x: -8,           y: WATER_Y * 0.55 };
-  const P1 = { x: W * 0.25,     y: WATER_Y * 0.10 };
-  const P2 = { x: ISLE_CX + 4,  y: ISLE_TOP - 4   };
-  const P3 = { x: SPLASH_X,     y: SPLASH_Y        };
-
+  // ── Bezier helpers ──────────────────────────────────────────────
   function bezier(t, p0, p1, p2, p3) {
     const u = 1 - t;
     return {
@@ -1181,17 +1170,84 @@ function fxDiscFlight(ctx, W, H) {
     };
   }
 
-  const SPLASH_DROPS = Array.from({ length: 9 }, () => ({
-    angle: -Math.PI * 0.5 + (Math.random() - 0.5) * Math.PI * 0.9,
-    speed: 0.8 + Math.random() * 1.4,
-    size:  1.0 + Math.random() * 1.6,
-    life:  0.6 + Math.random() * 0.35,
-    delay: Math.random() * 0.08,
-  }));
+  // ── Shot library — all end in the water ─────────────────────────
+  // Each shot is a function(W, H, WATER_Y, ISLE_CX, ISLE_TOP) → { P0,P1,P2,P3, splashX, label }
+  // splashX must be in [0.10*W .. 0.92*W] so it's always on screen.
+  function makeShots() {
+    const sy = WATER_Y + 5; // all splashes sit just below waterline
+    return [
+      // 1. The classic: nice arc, just clears the basket, goes long right
+      { label:'long right',
+        P0:{x:-8,          y:WATER_Y*0.45},
+        P1:{x:W*0.25,      y:WATER_Y*0.05},
+        P2:{x:ISLE_CX+2,   y:ISLE_TOP-5},
+        P3:{x:W*0.84,      y:sy} },
+
+      // 2. Short left — anhyzer dump, dies well before the island
+      { label:'short left',
+        P0:{x:-8,          y:WATER_Y*0.55},
+        P1:{x:W*0.12,      y:WATER_Y*0.25},
+        P2:{x:W*0.22,      y:WATER_Y*0.55},
+        P3:{x:W*0.28,      y:sy} },
+
+      // 3. Low & straight — skips just right of the island
+      { label:'skip right',
+        P0:{x:-8,          y:WATER_Y*0.70},
+        P1:{x:W*0.30,      y:WATER_Y*0.60},
+        P2:{x:ISLE_CX+18,  y:WATER_Y*0.55},
+        P3:{x:W*0.72,      y:sy} },
+
+      // 4. High hyzer — soars over the basket then fades hard left into water
+      { label:'hyzer fade',
+        P0:{x:-8,          y:WATER_Y*0.30},
+        P1:{x:W*0.20,      y:WATER_Y*(-0.10)},
+        P2:{x:W*0.55,      y:WATER_Y*0.20},
+        P3:{x:W*0.38,      y:sy} },
+
+      // 5. Sidearm roller — hugs low, hits water short-right of island
+      { label:'roller OB',
+        P0:{x:-8,          y:WATER_Y*0.80},
+        P1:{x:W*0.18,      y:WATER_Y*0.82},
+        P2:{x:W*0.40,      y:WATER_Y*0.78},
+        P3:{x:W*0.55,      y:sy} },
+
+      // 6. Massive overshot — screams way past the basket, splashes far right
+      { label:'way long',
+        P0:{x:-8,          y:WATER_Y*0.40},
+        P1:{x:W*0.30,      y:WATER_Y*(-0.05)},
+        P2:{x:W*0.70,      y:WATER_Y*0.10},
+        P3:{x:W*0.90,      y:sy} },
+    ];
+  }
+
+  // ── State ────────────────────────────────────────────────────────
+  const SHOTS = makeShots();
+  let shotIdx  = Math.floor(Math.random() * SHOTS.length);
+  let shot     = SHOTS[shotIdx];
+  let splashDrops = newDrops(shot.P3.x);
+
+  function newDrops(sx) {
+    return Array.from({ length: 9 }, () => ({
+      angle: -Math.PI * 0.5 + (Math.random() - 0.5) * Math.PI * 0.9,
+      speed: 0.8 + Math.random() * 1.4,
+      size:  1.0 + Math.random() * 1.6,
+      life:  0.6 + Math.random() * 0.35,
+      delay: Math.random() * 0.08,
+    }));
+  }
 
   let discT = 0, splashActive = false, splashT = 0, waitT = 0;
-  const FLIGHT_SPEED = 0.0055, WAIT = 100;
+  const FLIGHT_SPEED = 0.0055, WAIT = 110;
 
+  function nextShot() {
+    // Pick a different shot each time
+    shotIdx = (shotIdx + 1 + Math.floor(Math.random() * (SHOTS.length - 1))) % SHOTS.length;
+    shot = SHOTS[shotIdx];
+    splashDrops = newDrops(shot.P3.x);
+    discT = 0; splashActive = false; splashT = 0; waitT = 0;
+  }
+
+  // ── Background ──────────────────────────────────────────────────
   function drawBackground() {
     const skyGrad = ctx.createLinearGradient(0, 0, 0, WATER_Y);
     skyGrad.addColorStop(0,   'rgba(8,22,45,0.60)');
@@ -1222,9 +1278,9 @@ function fxDiscFlight(ctx, W, H) {
     }
   }
 
+  // ── Island + basket ─────────────────────────────────────────────
   function drawIsland() {
-    const ix = ISLE_CX;
-    const iw = ISLE_W, r = 4;
+    const ix = ISLE_CX, iw = ISLE_W, r = 4;
     const left = ix - iw, right = ix + iw;
     const top = ISLE_TOP, bot = WATER_Y + 3;
 
@@ -1245,9 +1301,9 @@ function fxDiscFlight(ctx, W, H) {
     }
 
     const BX = ix, BY = ISLE_TOP;
-    const POLE_H = 22, POLE_TOP = BY - POLE_H;
+    const POLE_H = 20, POLE_TOP = BY - POLE_H;
     const BASKET_Y = POLE_TOP + POLE_H * 0.52;
-    const BOT_SPREAD = 7;
+    const BOT_SPREAD = 7, TOP_SPREAD = 5, CHAIN_COUNT = 6;
 
     ctx.strokeStyle = 'rgba(210,210,190,0.75)'; ctx.lineWidth = 1.0;
     ctx.beginPath(); ctx.moveTo(BX, BY); ctx.lineTo(BX, POLE_TOP); ctx.stroke();
@@ -1255,17 +1311,16 @@ function fxDiscFlight(ctx, W, H) {
     ctx.strokeStyle = 'rgba(210,210,190,0.65)'; ctx.lineWidth = 0.8;
     ctx.beginPath(); ctx.ellipse(BX, POLE_TOP + 2, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
 
-    const CHAIN_COUNT = 6, TOP_SPREAD = 5;
     ctx.lineWidth = 0.5;
     for (let ci = 0; ci < CHAIN_COUNT; ci++) {
       const frac = ci / (CHAIN_COUNT - 1);
       const tx = BX - TOP_SPREAD + frac * TOP_SPREAD * 2;
-      const bx = BX - BOT_SPREAD + frac * BOT_SPREAD * 2;
-      const midX = (tx + bx) / 2 + Math.sin(frac * Math.PI) * 1.5;
+      const bx2 = BX - BOT_SPREAD + frac * BOT_SPREAD * 2;
+      const midX = (tx + bx2) / 2 + Math.sin(frac * Math.PI) * 1.5;
       const midY = (POLE_TOP + 2 + BASKET_Y) / 2;
       ctx.strokeStyle = `rgba(195,195,170,${0.25 + (1 - Math.abs(frac - 0.5) * 2) * 0.25})`;
       ctx.beginPath(); ctx.moveTo(tx, POLE_TOP + 2);
-      ctx.quadraticCurveTo(midX, midY, bx, BASKET_Y); ctx.stroke();
+      ctx.quadraticCurveTo(midX, midY, bx2, BASKET_Y); ctx.stroke();
     }
 
     ctx.strokeStyle = 'rgba(190,190,165,0.70)'; ctx.lineWidth = 0.9;
@@ -1278,6 +1333,7 @@ function fxDiscFlight(ctx, W, H) {
     ctx.stroke();
   }
 
+  // ── Disc ────────────────────────────────────────────────────────
   function drawDisc(pos, tangent) {
     const angle = Math.atan2(tangent.y, tangent.x);
     const LEN = 7, THK = 2;
@@ -1293,6 +1349,7 @@ function fxDiscFlight(ctx, W, H) {
   }
 
   function drawTrail(tCur) {
+    const {P0,P1,P2,P3} = shot;
     for (let i = 16; i >= 1; i--) {
       const p = bezier(Math.max(0, tCur - i * 0.010), P0, P1, P2, P3);
       ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI * 2);
@@ -1300,41 +1357,51 @@ function fxDiscFlight(ctx, W, H) {
     }
   }
 
+  // ── Splash ──────────────────────────────────────────────────────
   function drawSplash(progress) {
+    const sx = shot.P3.x, sy = shot.P3.y;
     const colH = Math.max(0, (1 - progress * 3)) * 12;
     if (colH > 0) {
-      const colGrad = ctx.createLinearGradient(SPLASH_X, SPLASH_Y, SPLASH_X, SPLASH_Y - colH);
-      colGrad.addColorStop(0, 'rgba(180,235,255,0.55)'); colGrad.addColorStop(1, 'rgba(200,245,255,0)');
-      ctx.fillStyle = colGrad; ctx.fillRect(SPLASH_X - 2, SPLASH_Y - colH, 4, colH);
+      const colGrad = ctx.createLinearGradient(sx, sy, sx, sy - colH);
+      colGrad.addColorStop(0, 'rgba(180,235,255,0.55)');
+      colGrad.addColorStop(1, 'rgba(200,245,255,0)');
+      ctx.fillStyle = colGrad; ctx.fillRect(sx - 2, sy - colH, 4, colH);
     }
     for (let ring = 0; ring < 4; ring++) {
       const rp = Math.min(1, Math.max(0, (progress - ring * 0.12) / 0.65));
       if (rp <= 0) continue;
-      ctx.beginPath(); ctx.ellipse(SPLASH_X, SPLASH_Y, rp*(8+ring*7), rp*(8+ring*7)*0.36, 0, 0, Math.PI*2);
-      ctx.strokeStyle = `rgba(125,211,252,${(1-rp)*(0.40-ring*0.07)})`; ctx.lineWidth = 0.85; ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, rp*(8+ring*7), rp*(8+ring*7)*0.36, 0, 0, Math.PI*2);
+      ctx.strokeStyle = `rgba(125,211,252,${(1-rp)*(0.40-ring*0.07)})`;
+      ctx.lineWidth = 0.85; ctx.stroke();
     }
-    SPLASH_DROPS.forEach(d => {
+    splashDrops.forEach(d => {
       const dp = Math.min(1, Math.max(0, (progress - d.delay) / d.life));
       if (dp <= 0 || dp >= 1) return;
-      const dx = SPLASH_X + Math.cos(d.angle) * d.speed * dp * 18;
-      const dy = SPLASH_Y + Math.sin(d.angle) * d.speed * dp * 18 + dp * dp * 14;
+      const dx = sx + Math.cos(d.angle) * d.speed * dp * 18;
+      const dy = sy + Math.sin(d.angle) * d.speed * dp * 18 + dp * dp * 14;
       ctx.beginPath(); ctx.arc(dx, dy, d.size * (1 - dp * 0.4), 0, Math.PI * 2);
       ctx.fillStyle = `rgba(185,235,255,${(1-dp)*0.75})`; ctx.fill();
     });
   }
 
+  // ── Main loop ───────────────────────────────────────────────────
   function frame() {
     ctx.clearRect(0, 0, W, H);
     drawBackground(); drawIsland();
+
     if (!splashActive) {
       discT = Math.min(1, discT + FLIGHT_SPEED);
-      const pos = bezier(discT, P0, P1, P2, P3);
+      const {P0,P1,P2,P3} = shot;
+      const pos  = bezier(discT, P0, P1, P2, P3);
       const tang = bezierTangent(discT, P0, P1, P2, P3);
       drawTrail(discT); drawDisc(pos, tang);
       if (discT >= 1) { splashActive = true; splashT = 0; }
     } else {
       splashT += 0.022; drawSplash(splashT);
-      if (splashT >= 1.6) { if (++waitT >= WAIT) { discT = 0; splashActive = false; waitT = 0; } }
+      if (splashT >= 1.6) {
+        if (++waitT >= WAIT) nextShot();
+      }
     }
     requestAnimationFrame(frame);
   }
