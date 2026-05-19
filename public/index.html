@@ -381,6 +381,60 @@
   }
   .results-count { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); }
   .results-count span { color: var(--green-neon); }
+
+  /* ── Stats bar ── */
+  .stats-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: var(--muted); margin-bottom: 12px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .stats-bar .stat-sep { color: var(--border); margin: 0 2px; }
+  .stats-bar .stat-val { color: var(--white); }
+  .stats-bar .stat-low { color: var(--green-neon); }
+  .stats-bar .stat-high { color: var(--red); }
+  .stats-bar .stat-avg { color: var(--gold); }
+
+  /* ── Avg divider in leaderboard ── */
+  .lb-avg-divider {
+    display: grid;
+    grid-template-columns: 56px 1fr 90px 90px;
+    align-items: center;
+    padding: 0 16px;
+    height: 28px;
+    position: relative;
+    pointer-events: none;
+    user-select: none;
+  }
+  .lb-avg-divider-line {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .lb-avg-divider-dash {
+    flex: 1;
+    border-top: 2px dashed rgba(240,180,41,0.45);
+  }
+  .lb-avg-divider-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--gold);
+    text-transform: uppercase;
+    opacity: 0.85;
+    white-space: nowrap;
+  }
+  @media (max-width: 480px) {
+    .lb-avg-divider {
+      grid-template-columns: 44px 1fr 72px 68px;
+      padding: 0 10px;
+    }
+  }
   .refresh-btn {
     background: transparent; border: 1px solid var(--border);
     color: var(--muted); border-radius: 6px; padding: 6px 14px;
@@ -533,6 +587,7 @@
       <div class="results-count" id="resultsCount"></div>
       <button class="refresh-btn" onclick="autoLoadToken()">↻ Refresh</button>
     </div>
+    <div class="stats-bar" id="statsBar" style="display:none"></div>
     <div class="leaderboard">
       <div class="lb-header">
         <span>Rank</span>
@@ -880,8 +935,27 @@ function escapeHtml(str) {
 //  Render full leaderboard (single scrollable list)
 // ═══════════════════════════════════════════════════════════════════
 function renderLeaderboard() {
-  const container = document.getElementById('lbRows');
-  container.innerHTML = allScoresGlobal.map((entry, i) => {
+  const scores = allScoresGlobal.map(e => e.score !== undefined ? e.score : 0);
+  const minScore = Math.min(...scores);
+  const maxScore = Math.max(...scores);
+  const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const avgRounded = Math.round(avgScore * 10) / 10;
+
+  // Find insertion point: first player whose score exceeds the average
+  let avgInsertIdx = scores.findIndex(s => s > avgScore);
+  if (avgInsertIdx === -1) avgInsertIdx = scores.length;
+
+  const avgDividerHtml = `
+    <div class="lb-avg-divider">
+      <div class="lb-avg-divider-line">
+        <div class="lb-avg-divider-dash"></div>
+        <span class="lb-avg-divider-label">AVG ${avgRounded}</span>
+        <div class="lb-avg-divider-dash"></div>
+      </div>
+    </div>
+  `;
+
+  const rows = allScoresGlobal.map((entry, i) => {
     const rank        = globalRanks[i];
     const rankDisplay = getRankDisplay(rank, allScoresGlobal, i);
     const rankCls     = getRankClass(rank);
@@ -905,10 +979,36 @@ function renderLeaderboard() {
         </div>
       </div>
     `;
-  }).join('');
+  });
 
+  // Splice in the avg divider at the right position
+  if (avgInsertIdx > 0 && avgInsertIdx < rows.length) {
+    rows.splice(avgInsertIdx, 0, avgDividerHtml);
+  }
+
+  document.getElementById('lbRows').innerHTML = rows.join('');
+
+  // Results count
   document.getElementById('resultsCount').innerHTML =
     `<span>${totalScores}</span> players on today's leaderboard`;
+
+  // Stats bar
+  const par = getPar();
+  const fmtAvg = par !== null ? (() => {
+    const d = Math.round(avgScore) - par;
+    return d === 0 ? 'E' : d > 0 ? `+${d}` : String(d);
+  })() : null;
+
+  const statsEl = document.getElementById('statsBar');
+  statsEl.innerHTML =
+    `Scores range from <span class="stat-val stat-low">${minScore}</span>` +
+    `<span class="stat-sep">&nbsp;to&nbsp;</span>` +
+    `<span class="stat-val stat-high">${maxScore}</span>` +
+    `<span class="stat-sep">&nbsp;&nbsp;·&nbsp;&nbsp;</span>` +
+    `Avg: <span class="stat-val stat-avg">${avgRounded}` +
+    (fmtAvg !== null ? ` (${fmtAvg} vs par)` : '') +
+    `</span>`;
+  statsEl.style.display = 'flex';
 }
 
 // ═══════════════════════════════════════════════════════════════════
