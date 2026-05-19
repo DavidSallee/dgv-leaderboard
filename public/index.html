@@ -1149,10 +1149,10 @@ function fxLeaves(ctx, W, H, color) {
 function fxDiscFlight(ctx, W, H) {
   // Waterline sits a bit lower so "Lakeside" text peeks above it.
   // Island drops with it; basket top stays comfortably below the card's top border.
-  const WATER_Y  = H * 0.50;   // horizon / waterline (lowered from 0.38)
+  const WATER_Y  = H * 0.44;   // horizon / waterline — flush with bottom of "Lakeside" text
   const ISLE_CX  = W * 0.58;
   const ISLE_W   = 28;
-  const ISLE_TOP = WATER_Y - 22; // island rises ~22px above waterline
+  const ISLE_TOP = WATER_Y - 11; // island rises ~11px above waterline (half of before)
 
   // ── Bezier helpers ──────────────────────────────────────────────
   function bezier(t, p0, p1, p2, p3) {
