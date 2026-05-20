@@ -941,15 +941,22 @@ function renderLeaderboard() {
   const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
   const avgRounded = Math.round(avgScore * 10) / 10;
 
-  // Find insertion point: first player whose score exceeds the average
-  let avgInsertIdx = scores.findIndex(s => s > avgScore);
+  // Median — immune to outliers like a +92 blowup round
+  const sorted = [...scores].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+
+  // Find insertion point: first player whose score exceeds the median
+  let avgInsertIdx = scores.findIndex(s => s > median);
   if (avgInsertIdx === -1) avgInsertIdx = scores.length;
 
   const avgDividerHtml = `
     <div class="lb-avg-divider">
       <div class="lb-avg-divider-line">
         <div class="lb-avg-divider-dash"></div>
-        <span class="lb-avg-divider-label">AVG ${avgRounded}</span>
+        <span class="lb-avg-divider-label">MEDIAN \${median}</span>
         <div class="lb-avg-divider-dash"></div>
       </div>
     </div>
